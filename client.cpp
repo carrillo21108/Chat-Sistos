@@ -32,13 +32,13 @@ void *listenToMessages(void *args)
 	while (1){
 		
 		// Inicializamos las variabless
-		char buffer_msg[length];
+		std::vector<char> buffer_msg(length);
 		int *sockmsg = (int *)args;
 
 		// Obtencion de respuesta
 		chat::Response *response = new chat::Response();
-		int bytesReceived = recv(*sockmsg, buffer_msg, length, 0);
-		response->ParseFromString(buffer_msg);
+		ssize_t bytesRead = recv(*sockmsg, buffer_msg.data(), buffer_msg.size(), 0);
+		response->ParseFromArray(buffer_msg.data(),bytesRead);
 		
 		// En caso el estado de la respuesta es ERROR
 		if (response->status_code() != chat::OK){
@@ -167,15 +167,15 @@ int main(int argc, char const* argv[])
 
 	// Definicion de estructuras
     chat::Request *request = new chat::Request();
-	chat::NewUserRequest *newUser = new chat::NewUserRequest();
+	chat::NewUserRequest *newUser = request->mutable_register_user();
 
 	chat::Response *response = new chat::Response();
 
 	// Message register
-	char buffer[length];
+	std::vector<char> buffer(length);
 	request->set_operation(chat::REGISTER_USER);
 	newUser->set_username(argv[1]);
-	request->set_allocated_register_user(newUser);
+	//request->set_allocated_register_user(newUser);
 
     // Serializar la solicitud a una cadena
     std::string serialized_request;
@@ -185,10 +185,9 @@ int main(int argc, char const* argv[])
     }
 
 	// Copiando mensaje en buffer
-	strcpy(buffer, serialized_request.c_str());
-	send(sockfd, buffer, serialized_request.size() + 1, 0);
-	recv(sockfd, buffer, length, 0);
-	response->ParseFromString(buffer);
+	send(sockfd, serialized_request.data(), serialized_request.size(), 0);
+	ssize_t bytesRead = recv(sockfd, buffer.data(), buffer.size(), 0);
+	response->ParseFromArray(buffer.data(),bytesRead);
 
 	// Si hubo error al buscar 
 	if (response->status_code() != chat::OK) {
@@ -231,16 +230,14 @@ int main(int argc, char const* argv[])
 				std::cin.ignore(); // Ignora el caracter de nueva linea dejado por 'cin >>' anterior
     			std::getline(std::cin, message);
 
-				chat::SendMessageRequest *newMessage = new chat::SendMessageRequest();
+				chat::SendMessageRequest *newMessage = request->mutable_send_message();
 
 				request->set_operation(chat::SEND_MESSAGE);
-				newMessage->set_recipient("");
 				newMessage->set_content(message);
-				request->set_allocated_send_message(newMessage);
+				//request->set_allocated_send_message(newMessage);
 				request->SerializeToString(&serialized_request);
 
-				strcpy(buffer, serialized_request.c_str());
-				send(sockfd, buffer, serialized_request.size() + 1, 0);
+				send(sockfd, serialized_request.data(), serialized_request.size(), 0);
 				waitingForServerResponse = 1;
 				break;
 		}
@@ -255,15 +252,14 @@ int main(int argc, char const* argv[])
 				cout<<"Enter the message to be sent: ";
     			std::getline(std::cin, message);
 
-				chat::SendMessageRequest *newMessage = new chat::SendMessageRequest();
+				chat::SendMessageRequest *newMessage = request->mutable_send_message();
 				request->set_operation(chat::SEND_MESSAGE);
 				newMessage->set_recipient(recipient);
 				newMessage->set_content(message);
-				request->set_allocated_send_message(newMessage);
+				//request->set_allocated_send_message(newMessage);
 				request->SerializeToString(&serialized_request);
 
-				strcpy(buffer, serialized_request.c_str());
-				send(sockfd, buffer, serialized_request.size() + 1, 0);
+				send(sockfd, serialized_request.data(), serialized_request.size(), 0);
 				waitingForServerResponse = 1;
 				break;
 		}
@@ -271,7 +267,7 @@ int main(int argc, char const* argv[])
 		// Cambiar status
 		case '3':{
 				std::string op;
-				chat::UpdateStatusRequest *newStatus = new chat::UpdateStatusRequest();
+				chat::UpdateStatusRequest *newStatus = request->mutable_update_status();
 				cout<<"Select between these options\n1 -> ONLINE\n2 -> BUSY\n3 -> OFFLINE\nEnter the new status: ";
 				
 				std::cin.ignore();
@@ -294,26 +290,23 @@ int main(int argc, char const* argv[])
 				newStatus->set_username(argv[1]);
 
 				request->set_operation(chat::UPDATE_STATUS);
-				request->set_allocated_update_status(newStatus);
+				//request->set_allocated_update_status(newStatus);
 				request->SerializeToString(&serialized_request);
 
-				strcpy(buffer, serialized_request.c_str());
-				send(sockfd, buffer, serialized_request.size() + 1, 0);
+				send(sockfd, serialized_request.data(), serialized_request.size(), 0);
 				waitingForServerResponse = 1;
 				break;
 		}
 			
 		// Mostrar a todos los usuarios conectados
             	case '4':{
-				chat::UserListRequest *list = new chat::UserListRequest();
-				list->set_username("");
+				chat::UserListRequest *list = request->mutable_get_users();
 
 				request->set_operation(chat::GET_USERS);
-				request->set_allocated_get_users(list);
+				//request->set_allocated_get_users(list);
 				request->SerializeToString(&serialized_request);
 
-				strcpy(buffer, serialized_request.c_str());
-				send(sockfd, buffer, serialized_request.size() + 1, 0);
+				send(sockfd, serialized_request.data(), serialized_request.size(), 0);
 				waitingForServerResponse = 1;
                 break;
 		}
@@ -321,7 +314,7 @@ int main(int argc, char const* argv[])
 		// Informacion de usuarios
 		case '5':{
 				std::string username;
-				chat::UserListRequest *info = new chat::UserListRequest();
+				chat::UserListRequest *info = request->mutable_get_users();
 
 				cout<<"Enter the username: ";
 				std::cin.ignore();
@@ -330,11 +323,10 @@ int main(int argc, char const* argv[])
 				info->set_username(username);
 
 				request->set_operation(chat::GET_USERS);
-				request->set_allocated_get_users(info);
+				//request->set_allocated_get_users(info);
 				request->SerializeToString(&serialized_request);
 
-				strcpy(buffer, serialized_request.c_str());
-				send(sockfd, buffer, serialized_request.size() + 1, 0);
+				send(sockfd, serialized_request.data(), serialized_request.size(), 0);
 				waitingForServerResponse = 1;
                 break;
 		}
@@ -342,13 +334,13 @@ int main(int argc, char const* argv[])
 		// Cerrar sesion
 		case '6':{
 				std::string username;
-				chat::User *userI = new chat::User();
+				chat::User *userI = request->mutable_unregister_user();
 
 				userI->set_username(argv[1]);
 				userI->set_status(chat::OFFLINE);
 
 				request->set_operation(chat::UNREGISTER_USER);
-				request->set_allocated_unregister_user(userI);
+				//request->set_allocated_unregister_user(userI);
 				request->SerializeToString(&serialized_request);
 				proceed = 0;
                 break;

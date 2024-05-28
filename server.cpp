@@ -74,9 +74,8 @@ void SendErrorResponse(int socketFd, chat::Operation op, std::string error_messa
     error_response->set_status_code(chat::BAD_REQUEST);
     error_response->set_message(error_message);
     error_response->SerializeToString(&serialized_response);
-    char buffer[length];
-    strcpy(buffer, serialized_response.c_str());
-    send(socketFd, buffer, sizeof buffer, 0);
+    
+    send(socketFd, serialized_response.data(), serialized_response.size(), 0);
 }
 
 
@@ -90,7 +89,7 @@ void *ThreadWork(void *params)
     struct User *newClientParams = (struct User *)params;
     int socketFd = newClientParams->socketFd;
     std::string userIp = newClientParams->ip;
-    char buffer[length];
+    std::vector<char> buffer(length);
 	
     // Server Structs
     std::string serialized_response;
@@ -101,8 +100,9 @@ void *ThreadWork(void *params)
         response->Clear();
 	
 	// Si recv devuelve 0, se desconecta al usuario
-        if (recv(socketFd, buffer, length, 0) < 1){
-            if (recv(socketFd, buffer, length, 0) == 0){
+        ssize_t bytesRead = recv(socketFd, buffer.data(), buffer.size(), 0);
+        if (bytesRead < 1){
+            if (bytesRead == 0){
                 std::cout<<std::endl<<"__LOGGING OUT__\n"<< "The client named: "<< user.username<< " has logged out"<< std::endl;
 				clients.erase(user.username);
                 close(user.socketFd);
@@ -111,7 +111,7 @@ void *ThreadWork(void *params)
         }
 	
 	// Sino, otra opcion
-        request->ParseFromString(buffer);
+        request->ParseFromArray(buffer.data(),bytesRead);
 		switch (request->operation()){
             // Registro de usuario
 			case chat::REGISTER_USER:{
@@ -127,8 +127,7 @@ void *ThreadWork(void *params)
 				response->set_status_code(chat::OK);
 				response->SerializeToString(&serialized_response);
 
-				strcpy(buffer, serialized_response.c_str());
-				send(socketFd, buffer, serialized_response.size() + 1, 0);
+				send(socketFd, serialized_response.data(), serialized_response.size(), 0);
 				std::cout<<std::endl<<"SUCCESS:The user"<<user.username<<" was added with the socket: "<<socketFd<<std::endl;
 				user.username = request->register_user().username();
 				user.socketFd = socketFd;
@@ -143,7 +142,7 @@ void *ThreadWork(void *params)
             // Envio de mensaje
             case chat::SEND_MESSAGE:{
                 // Broadcast
-                if(request->send_message().recipient()==""){
+                if(request->send_message().recipient().empty()){
                     std::cout<<"\n__SENDING GENERAL MESSAGE__\nUser: "<<user.username<<" is trying to send a general message";
                     for (auto i:clients){
                         if (i.first==user.username){
@@ -152,26 +151,24 @@ void *ThreadWork(void *params)
                             response->set_status_code(chat::OK);
                             response->SerializeToString(&serialized_response);
 
-                            strcpy(buffer, serialized_response.c_str());
-                            send(socketFd, buffer, serialized_response.size() + 1, 0);
+                            send(socketFd, serialized_response.data(), serialized_response.size(), 0);
                             std::cout<<"\nSUCCESS:User: "+user.username+" has sent the message successfully to the general chat\n";
                         }
                         else{
                             // Si el usario esta inactivo, no recibe el mensaje
                             if(i.second->status!=chat::OFFLINE){
-                                chat::IncomingMessageResponse *message = new chat::IncomingMessageResponse();
+                                chat::IncomingMessageResponse *message = response->mutable_incoming_message();
                                 message->set_sender(user.username);
                                 message->set_content(request->send_message().content());
                                 message->set_type(chat::BROADCAST);
 
                                 response->set_operation(chat::INCOMING_MESSAGE);
-                                response->set_allocated_incoming_message(message);
+                                //response->set_allocated_incoming_message(message);
                                 response->set_message("\nUser: "+response->incoming_message().sender()+" sends you a message\n");
                                 response->set_status_code(chat::OK);
                                 response->SerializeToString(&serialized_response);
 
-                                strcpy(buffer, serialized_response.c_str());
-                                send(i.second->socketFd, buffer, serialized_response.size() + 1, 0);
+                                send(i.second->socketFd, serialized_response.data(), serialized_response.size(), 0);
                             }
                         }
                     }
@@ -188,19 +185,18 @@ void *ThreadWork(void *params)
                         else{
                             // Si el usario esta inactivo, no recibe el mensaje
                             if(clients[request->send_message().recipient()]->status!=chat::OFFLINE){
-                                chat::IncomingMessageResponse *message = new chat::IncomingMessageResponse();
+                                chat::IncomingMessageResponse *message = response->mutable_incoming_message();
                                 message->set_sender(user.username);
                                 message->set_content(request->send_message().content());
                                 message->set_type(chat::DIRECT);
 
                                 response->set_operation(chat::INCOMING_MESSAGE);
-                                response->set_allocated_incoming_message(message);
+                                //response->set_allocated_incoming_message(message);
                                 response->set_message("\nUser: "+response->incoming_message().sender()+" sends you a message\n");
                                 response->set_status_code(chat::OK);
                                 response->SerializeToString(&serialized_response);
 
-                                strcpy(buffer, serialized_response.c_str());
-                                send(clients[request->send_message().recipient()]->socketFd, buffer, serialized_response.size() + 1, 0);
+                                send(clients[request->send_message().recipient()]->socketFd, serialized_response.data(), serialized_response.size(), 0);
 
                                 response->Clear();
 
@@ -208,9 +204,8 @@ void *ThreadWork(void *params)
                                 response->set_message("\nSUCCESS: You have sent the private message to "+request->send_message().recipient()+" successfully\n");
                                 response->set_status_code(chat::OK);
                                 response->SerializeToString(&serialized_response);
-
-                                strcpy(buffer, serialized_response.c_str());
-                                send(socketFd, buffer, serialized_response.size() + 1, 0);
+                                
+                                send(socketFd, serialized_response.data(), serialized_response.size(), 0);
                                 std::cout<<"\nSUCCESS:User: "+user.username+" has sent the message successfully ->"+request->send_message().recipient()+"\n";
                             }
                             else{
@@ -231,9 +226,9 @@ void *ThreadWork(void *params)
             // Informacion de usuario
             case chat::GET_USERS:{
                 // Informacion de todos los usuarios
-                if(request->get_users().username()==""){
+                if(request->get_users().username().empty()){
                     std::cout<<"\n__ALL CONNECTED CLIENTS__\nUser: "<<user.username<<" is trying to show all users info";
-                    chat::UserListResponse *list = new chat::UserListResponse();
+                    chat::UserListResponse *list = response->mutable_user_list();
                     for(auto i:clients){
                         chat::User *userI = new chat::User();
                         // Concatenacion de username e ip
@@ -245,17 +240,17 @@ void *ThreadWork(void *params)
 
                     response->set_operation(chat::GET_USERS);
                     response->set_message("SUCCESS: userinfo of all connected clients");
-                    response->set_allocated_user_list(list);
+                    //response->set_allocated_user_list(list);
                     response->set_status_code(chat::OK);
                     response->SerializeToString(&serialized_response);
-                    strcpy(buffer, serialized_response.c_str());
-                    send(socketFd, buffer, serialized_response.size() + 1, 0);
+
+                    send(socketFd, serialized_response.data(), serialized_response.size(), 0);
                     std::cout<<"\nSUCCESS:User:"<<user.username<<" has deployed info of all connected clients\n";
                 }
                 // Informacion de un usuario en especifico
                 else{
                     std::cout<<"\n__SINGLE CONNECTED CLIENT__\nUser: "<<user.username<<" is trying to show single user info";
-                    chat::UserListResponse *list = new chat::UserListResponse();
+                    chat::UserListResponse *list = response->mutable_user_list();
                     chat::User *userI = new chat::User();
 
                     if(clients.count(request->get_users().username()) > 0){
@@ -268,11 +263,11 @@ void *ThreadWork(void *params)
 
                         response->set_operation(chat::GET_USERS);
                         response->set_message("\nSUCCESS: Userinfo of "+request->get_users().username()+" successfully\n");
-                        response->set_allocated_user_list(list);
+                        //response->set_allocated_user_list(list);
                         response->set_status_code(chat::OK);
                         response->SerializeToString(&serialized_response);
-                        strcpy(buffer, serialized_response.c_str());
-                        send(socketFd, buffer, serialized_response.size() + 1, 0);
+
+                        send(socketFd, serialized_response.data(), serialized_response.size(), 0);
                         std::cout<<"SUCCESS:User:"<<user.username<<" has deployed userinfo successfully ->"+request->get_users().username()+"\n";
                     }
                     else{
@@ -295,8 +290,7 @@ void *ThreadWork(void *params)
                 response->set_status_code(chat::OK);
                 response->SerializeToString(&serialized_response);
 
-                strcpy(buffer, serialized_response.c_str());
-                send(socketFd, buffer, serialized_response.size() + 1, 0);
+                send(socketFd, serialized_response.data(), serialized_response.size(), 0);
                 updateUserActivity(&user);
 				break;
             }
@@ -309,8 +303,7 @@ void *ThreadWork(void *params)
                 response->set_status_code(chat::OK);
                 response->SerializeToString(&serialized_response);
 
-                strcpy(buffer, serialized_response.c_str());
-                send(socketFd, buffer, serialized_response.size() + 1, 0);
+                send(socketFd, serialized_response.data(), serialized_response.size(), 0);
 
 				clients.erase(user.username);
                 close(user.socketFd);
